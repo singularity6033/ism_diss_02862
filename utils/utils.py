@@ -1,11 +1,9 @@
 import numpy as np
 from PIL import Image
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
-# ---------------------------------------------------------#
-#   将图像转换成RGB图像，防止灰度图在预测时报错。
-#   代码仅仅支持RGB图像的预测，所有其它类型的图像都会转化成RGB
-# ---------------------------------------------------------#
 def cvtColor(image):
     if len(np.shape(image)) == 3 and np.shape(image)[2] == 3:
         return image
@@ -13,20 +11,13 @@ def cvtColor(image):
         image = image.convert('RGB')
         return image
 
-    # ---------------------------------------------------#
 
-
-#   对输入图像进行resize
-# ---------------------------------------------------#
 def resize_image(image, size):
     w, h = size
     new_image = image.resize((w, h), Image.BICUBIC)
     return new_image
 
 
-# ---------------------------------------------------#
-#   获得类
-# ---------------------------------------------------#
 def get_classes(classes_path):
     with open(classes_path, encoding='utf-8') as f:
         class_names = f.readlines()
@@ -34,10 +25,7 @@ def get_classes(classes_path):
     return class_names, len(class_names)
 
 
-# ---------------------------------------------------#
-#   获得输入图片的大小
-# ---------------------------------------------------#
-def get_new_img_size(height, width, img_min_side=600):
+def get_new_img_size(height, width, img_min_side=300):
     if width <= height:
         f = float(img_min_side) / width
         resized_height = int(f * height)

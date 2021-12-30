@@ -1,12 +1,14 @@
 import math
-from random import shuffle
-
 import cv2
+import imutils
 import numpy as np
 from PIL import Image
-from tensorflow.keras.applications.imagenet_utils import preprocess_input
-
+from random import shuffle
+import tensorflow as tf
+from utils.iou import compute_iou
 from utils.utils import cvtColor
+from tensorflow.keras.applications.imagenet_utils import preprocess_input
+from tensorflow.keras.preprocessing.image import img_to_array
 
 
 class faster_rcnn_dataset:
@@ -259,3 +261,175 @@ class faster_rcnn_dataset:
         assignment[:, 4][best_iou_mask] = 1
         # we get predicted results of one input image (not gt)
         return assignment
+
+
+"""
+a basic way to convert a image classifier to object detectors (linear SVM + HOG)
+there is 2 key ingredients:
+1. image pyramid: find objects in images at different scales (sizes)
+2. sliding window: a fixed-size rectangle that slides from left-to-right and top-to-bottom within an image
+combine with image pyramids, sliding windows allow us to localize objects at different locations and
+multiple scales of the input image.
+"""
+
+
+class ip_sw_dataset:
+    def __init__(self, input_image_lines, input_shape, lb, batch_size, aug, scale, win_step, roi_size,
+                 mini_size=(32, 32)):
+        self.input_image_lines = input_image_lines
+        self.length = len(self.input_image_lines)
+        self.lb = lb
+        self.input_shape = input_shape
+        self.batch_size = batch_size
+        self.aug = aug
+        self.scale = scale
+        self.win_step = win_step
+        self.roi_size = roi_size
+        self.mini_size = mini_size
+
+    def generate(self):
+        i = 0
+        while True:
+            # generate proposed roi
+            proposed_rois = []
+            proposed_labels = []
+            for b in range(self.batch_size):
+                if i == 0:
+                    np.random.shuffle(self.input_image_lines)
+                rois = []
+                locs = []
+                input_image_line = self.input_image_lines[i]
+                line = input_image_line.split()
+                # load image
+                raw_image = Image.open(line[0])
+                H, W = raw_image.size
+                img_prs = self.image_pyramid(raw_image)
+                for img_pr in img_prs:
+                    # determine the scale factor between the *original* image
+                    # dimensions and the *current* layer of the pyramid
+                    scale = W / float(img_pr.size[1])
+                    # for each layer of the image pyramid, loop over the sliding
+                    # window locations
+                    for (x, y, roiOrig) in self.sliding_window(img_pr):
+                        # scale the (x, y)-coordinates of the ROI with respect to the
+                        # *original* image dimensions
+                        x = x * scale
+                        y = y * scale
+                        w = self.roi_size[0] * scale
+                        h = self.roi_size[1] * scale
+                        # take the ROI and preprocess it so we can later classify
+                        # random data augmentation in training no such operation in validating
+                        roi = self.get_random_data(roiOrig, self.input_shape, random=self.aug)
+                        roi = img_to_array(roi)
+                        # update our list of ROIs and associated coordinates
+                        rois.append(roi)
+                        locs.append((x, y, x + w, y + h))
+                # load gt regions
+                gt_boxes = []
+                for j in range(1, len(line)):
+                    xMin, yMin, xMax, yMax, label_id = line[j].split(',')
+                    gt_boxes.append((float(xMin), float(yMin), float(xMax), float(yMax), label_id))
+                print(rois[0].shape)
+                ious = []
+                # loop over the region got from sliding window + image pyramid
+                for loc_id, loc in enumerate(locs):
+                    # loop over the ground-truth bounding boxes
+                    for gtBox in gt_boxes:
+                        # compute the intersection over union between the two
+                        # boxes and unpack the ground-truth bounding box
+                        iou = compute_iou(gtBox[:-1], loc)
+                        label_id = gtBox[-1]
+                        # check to see if the IOU is greater than 80% *and* that
+                        # we have not hit our positive count limit
+                        if iou > 0.3:
+                            # extract the output roi
+                            proposed_rois.append(rois[loc_id])
+                            proposed_labels.append(label_id)
+            yield np.array(proposed_rois), self.lb.transform(np.array(proposed_labels))
+
+    def sliding_window(self, image):
+        windows = []
+        # slide a window across the image
+        for y in range(0, image.size[0] - self.roi_size[1], self.win_step):
+            for x in range(0, image.size[1] - self.roi_size[0], self.win_step):
+                windows.append([x, y, image.crop((x, y, x + self.roi_size[0], y + self.roi_size[1]))])
+        return windows
+
+    def image_pyramid(self, image):
+        # pyramid image list
+        images = [image]
+        while True:
+            # compute the dimensions of the next image in the pyramid
+            h = int(image.size[0] / self.scale)
+            w = int(image.size[1] / self.scale)
+            image = image.resize((h, w), Image.BICUBIC)
+            # if the resized image does not meet the supplied minimum
+            # size, then stop constructing the pyramid
+            if image.size[0] < self.mini_size[1] or image.size[1] < self.mini_size[0]:
+                break
+            images.append(image)
+        return images
+
+    @staticmethod
+    def rand(a=0, b=1):
+        return np.random.rand() * (b - a) + a
+
+    def get_random_data(self, image, input_shape, jitter=.3, hue=.1, sat=1.5, val=1.5, random=True):
+        image = cvtColor(image)
+        # get image size and target size
+        iw, ih = image.size
+        h, w = input_shape
+
+        if not random:
+            scale = min(w / iw, h / ih)
+            nw = int(iw * scale)
+            nh = int(ih * scale)
+            dx = (w - nw) // 2
+            dy = (h - nh) // 2
+
+            # add gray stripe to remaining images
+            image = image.resize((nw, nh), Image.BICUBIC)
+            new_image = Image.new('RGB', (w, h), (128, 128, 128))
+            new_image.paste(image, (dx, dy))
+            image_data = np.array(new_image, np.float32)
+
+            return image_data
+
+        # scale img and warp width and height
+        new_ar = w / h * self.rand(1 - jitter, 1 + jitter) / self.rand(1 - jitter, 1 + jitter)
+        scale = self.rand(.25, 2)
+        if new_ar < 1:
+            nh = int(scale * h)
+            nw = int(nh * new_ar)
+        else:
+            nw = int(scale * w)
+            nh = int(nw / new_ar)
+        image = image.resize((nw, nh), Image.BICUBIC)
+
+        # add gray stripe to remaining images
+        dx = int(self.rand(0, w - nw))
+        dy = int(self.rand(0, h - nh))
+        new_image = Image.new('RGB', (w, h), (128, 128, 128))
+        new_image.paste(image, (dx, dy))
+        image = new_image
+
+        # flipping
+        flip = self.rand() < .5
+        if flip:
+            image = image.transpose(Image.FLIP_LEFT_RIGHT)
+
+        # warping in chrominance
+        hue = self.rand(-hue, hue)
+        sat = self.rand(1, sat) if self.rand() < .5 else 1 / self.rand(1, sat)
+        val = self.rand(1, val) if self.rand() < .5 else 1 / self.rand(1, val)
+        x = cv2.cvtColor(np.array(image, np.float32) / 255, cv2.COLOR_RGB2HSV)
+        x[..., 0] += hue * 360
+        x[..., 0][x[..., 0] > 1] -= 1
+        x[..., 0][x[..., 0] < 0] += 1
+        x[..., 1] *= sat
+        x[..., 2] *= val
+        x[x[:, :, 0] > 360, 0] = 360
+        x[:, :, 1:][x[:, :, 1:] > 1] = 1
+        x[x < 0] = 0
+        image_data = cv2.cvtColor(x, cv2.COLOR_HSV2RGB) * 255  # numpy array, 0 to 1
+        return image_data

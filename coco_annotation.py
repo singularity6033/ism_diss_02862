@@ -11,6 +11,7 @@ from utils import config
 """
 
 TrainImagePaths = list(paths.list_images(config.TRAIN_IMAGES))
+TestImagePaths = list(paths.list_images(config.TEST_IMAGES))
 img_train_paths, img_val_paths = train_test_split(TrainImagePaths, test_size=0.1)
 
 coco = COCO(config.TRAIN_ANNOTS)
@@ -42,6 +43,7 @@ def extract_annotations(imgId, target_file):
 
 train_file = open(os.path.join(config.ORIG_BASE_PATH, 'shuffled_train_set.txt'), 'w')
 val_file = open(os.path.join(config.ORIG_BASE_PATH, 'shuffled_val_set.txt'), 'w')
+test_file = open(os.path.join(config.ORIG_BASE_PATH, 'test_set.txt'), 'w')
 
 for img_train_id, img_train_path in enumerate(img_train_paths):
     print("[INFO] generate train set {}/{}...".format(img_train_id + 1, len(img_train_paths)))
@@ -62,3 +64,9 @@ for img_val_id, img_val_path in enumerate(img_val_paths):
     extract_annotations(img_id, val_file)
     val_file.write('\n')
 val_file.close()
+
+for img_test_id, img_test_path in enumerate(TestImagePaths):
+    print("[INFO] generate test set {}/{}...".format(img_test_id + 1, len(TestImagePaths)))
+    test_file.write(img_test_path)
+    test_file.write('\n')
+test_file.close()

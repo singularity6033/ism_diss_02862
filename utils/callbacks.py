@@ -37,16 +37,6 @@ class LossHistory(keras.callbacks.Callback):
         plt.figure()
         plt.plot(iterations, self.losses, 'red', linewidth=2, label='train loss')
         plt.plot(iterations, self.val_loss, 'coral', linewidth=2, label='val loss')
-        if len(self.losses) < 25:
-            num = 5
-        else:
-            num = 15
-
-        plt.plot(iterations, scipy.signal.savgol_filter(self.losses, num, 3), 'green', linestyle='--', linewidth=2,
-                 label='smooth train loss')
-        plt.plot(iterations, scipy.signal.savgol_filter(self.val_loss, num, 3), '#8B4513', linestyle='--',
-                 linewidth=2,
-                 label='smooth val loss')
         plt.grid(True)
         plt.xlabel('Epoch')
         plt.ylabel('Loss')

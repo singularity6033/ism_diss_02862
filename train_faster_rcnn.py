@@ -23,16 +23,16 @@ for gpu in gpus:
 classes_path = os.path.join(config.ORIG_BASE_PATH, 'coco_classes.txt')
 model_path = './vgg_cifar100/cifar100vgg_scratch.json'
 weights_path = './vgg_cifar100/cifar100vgg_scratch.h5'
-input_shape = [600, 600]
-anchors_size = [128, 256, 512]
+input_shape = [300, 300]
+anchors_size = [64, 128, 256]
 
 Init_Epoch = 0
 Freeze_Epoch = 50
-Freeze_batch_size = 4
+Freeze_batch_size = 16
 Freeze_lr = 1e-4
 
-UnFreeze_Epoch = 100
-Unfreeze_batch_size = 2
+UnFreeze_Epoch = 10
+Unfreeze_batch_size = 8
 Unfreeze_lr = 1e-5
 
 Freeze_Train = True
@@ -62,7 +62,7 @@ num_train = len(train_lines)
 num_val = len(val_lines)
 
 # for standard vgg16 network
-freeze_layers = 17
+freeze_layers = 53
 if Freeze_Train:
     for i in range(freeze_layers):
         if type(model_all.layers[i]) != tf.keras.layers.BatchNormalization:
@@ -108,46 +108,46 @@ if True:
         K.set_value(model_rpn.optimizer.lr, lr)
         K.set_value(model_all.optimizer.lr, lr)
 
-if Freeze_Train:
-    for i in range(freeze_layers):
-        if type(model_all.layers[i]) != tf.keras.layers.BatchNormalization:
-            model_all.layers[i].trainable = True
-
-if True:
-    batch_size = Unfreeze_batch_size
-    lr = Unfreeze_lr
-    start_epoch = Freeze_Epoch
-    end_epoch = UnFreeze_Epoch
-
-    epoch_step = num_train // batch_size
-    epoch_step_val = num_val // batch_size
-
-    if epoch_step == 0 or epoch_step_val == 0:
-        raise ValueError('the data set is too small for training. please expand the data set.')
-
-    model_rpn.compile(
-        loss={
-            'classification': rpn_cls_loss(),
-            'regression': rpn_smooth_l1()
-        }, optimizer=Adam(lr=lr)
-    )
-    model_all.compile(
-        loss={
-            'classification': rpn_cls_loss(),
-            'regression': rpn_smooth_l1(),
-            'dense_class_{}'.format(num_classes): classifier_cls_loss(),
-            'dense_regress_{}'.format(num_classes): classifier_smooth_l1(num_classes - 1)
-        }, optimizer=Adam(lr=lr)
-    )
-
-    gen = faster_rcnn_dataset(train_lines, input_shape, anchors, batch_size, num_classes, train=True).generate()
-    gen_val = faster_rcnn_dataset(val_lines, input_shape, anchors, batch_size, num_classes, train=False).generate()
-
-    print('Train on {} samples, val on {} samples, with batch size {}.'.format(num_train, num_val, batch_size))
-    for epoch in range(start_epoch, end_epoch):
-        fit_one_epoch(model_rpn, model_all, loss_history, callback, epoch, epoch_step, epoch_step_val, gen, gen_val,
-                      end_epoch,
-                      anchors, bbox_util, roi_helper)
-        lr = lr * 0.96
-        K.set_value(model_rpn.optimizer.lr, lr)
-        K.set_value(model_all.optimizer.lr, lr)
+# if Freeze_Train:
+#     for i in range(14, freeze_layers):
+#         if type(model_all.layers[i]) != tf.keras.layers.BatchNormalization:
+#             model_all.layers[i].trainable = True
+#
+# if True:
+#     batch_size = Unfreeze_batch_size
+#     lr = Unfreeze_lr
+#     start_epoch = Freeze_Epoch
+#     end_epoch = UnFreeze_Epoch
+#
+#     epoch_step = num_train // batch_size
+#     epoch_step_val = num_val // batch_size
+#
+#     if epoch_step == 0 or epoch_step_val == 0:
+#         raise ValueError('the data set is too small for training. please expand the data set.')
+#
+#     model_rpn.compile(
+#         loss={
+#             'classification': rpn_cls_loss(),
+#             'regression': rpn_smooth_l1()
+#         }, optimizer=Adam(lr=lr)
+#     )
+#     model_all.compile(
+#         loss={
+#             'classification': rpn_cls_loss(),
+#             'regression': rpn_smooth_l1(),
+#             'dense_class_{}'.format(num_classes): classifier_cls_loss(),
+#             'dense_regress_{}'.format(num_classes): classifier_smooth_l1(num_classes - 1)
+#         }, optimizer=Adam(lr=lr)
+#     )
+#
+#     gen = faster_rcnn_dataset(train_lines, input_shape, anchors, batch_size, num_classes, train=True).generate()
+#     gen_val = faster_rcnn_dataset(val_lines, input_shape, anchors, batch_size, num_classes, train=False).generate()
+#
+#     print('Train on {} samples, val on {} samples, with batch size {}.'.format(num_train, num_val, batch_size))
+#     for epoch in range(start_epoch, end_epoch):
+#         fit_one_epoch(model_rpn, model_all, loss_history, callback, epoch, epoch_step, epoch_step_val, gen, gen_val,
+#                       end_epoch,
+#                       anchors, bbox_util, roi_helper)
+#         lr = lr * 0.96
+#         K.set_value(model_rpn.optimizer.lr, lr)
+#         K.set_value(model_all.optimizer.lr, lr)
